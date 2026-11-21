@@ -43,11 +43,11 @@ jobs:
           mkdir -p dist
           for OS in linux darwin windows; do
             for ARCH in amd64 arm64; do
-              EXT=
-              if [ $OS = windows ]; then EXT=.exe; fi
-              BIN=dist/upassist-${OS}-${ARCH}${EXT}
-              echo Building $BIN...
-              GOOS=$OS GOARCH=$ARCH CGO_ENABLED=0 go build -ldflags=-s -w -o $BIN ./cmd/upassist
+              EXT=""
+              if [ "$OS" = "windows" ]; then EXT=".exe"; fi
+              BIN="dist/upassist-${OS}-${ARCH}${EXT}"
+              echo "Building $BIN..."
+              GOOS=$OS GOARCH=$ARCH CGO_ENABLED=0 go build -ldflags="-s -w" -o "$BIN" ./cmd/upassist
             done
           done
       - name: Create Release
@@ -57,3 +57,61 @@ jobs:
           draft: false
           prerelease: false
           generate_release_notes: true
+
+  notify:
+    name: Notify Telegram
+    runs-on: ubuntu-latest
+    needs: [test, release]
+    if: always() && startsWith(github.ref, 'refs/tags/v')
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Send deployment notification
+        continue-on-error: true
+        env:
+          WEBHOOK_URL: ${{ secrets.DEPLOY_WEBHOOK_URL }}
+          RELEASE_STATUS: ${{ needs.release.result }}
+          TEST_STATUS: ${{ needs.test.result }}
+          REPO: ${{ github.repository }}
+          WORKFLOW: ${{ github.workflow }}
+          ENVIRONMENT: prod
+          REF_NAME: ${{ github.ref_name }}
+          COMMIT_HASH: ${{ github.sha }}
+          ACTOR: ${{ github.actor }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          APP_NAME: Upassist Go SDK & CLI
+          SITE_URL: https://github.com/upassist-cloud/upassist-go/releases
+        run: |
+          if [ "$RELEASE_STATUS" = "success" ] && [ "$TEST_STATUS" = "success" ]; then
+            STATUS="success"
+          elif [ "$RELEASE_STATUS" = "cancelled" ] || [ "$TEST_STATUS" = "cancelled" ]; then
+            STATUS="cancelled"
+          else
+            STATUS="failure"
+          fi
+
+          COMMIT_MESSAGE="$(git log -1 --pretty=%s 2>/dev/null || true)"
+
+          payload=$(jq -n \
+            --arg status "$STATUS" \
+            --arg repository "$REPO" \
+            --arg workflow "$WORKFLOW" \
+            --arg environment "$ENVIRONMENT" \
+            --arg ref_name "$REF_NAME" \
+            --arg commit_hash "$COMMIT_HASH" \
+            --arg commit_message "$COMMIT_MESSAGE" \
+            --arg actor "$ACTOR" \
+            --arg run_url "$RUN_URL" \
+            --arg app_name "$APP_NAME" \
+            --arg url "$SITE_URL" \
+            '{status:$status, repository:$repository, workflow:$workflow,
+              environment:$environment, ref_name:$ref_name, commit_hash:$commit_hash,
+              commit_message:$commit_message, actor:$actor, run_url:$run_url,
+              app_name:$app_name, url:$url}')
+
+          curl -sS --max-time 15 -X POST \
+            -H "Content-Type: application/json" \
+            -d "$payload" "$WEBHOOK_URL"
