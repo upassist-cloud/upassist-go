@@ -305,6 +305,7 @@ const (
 	IncidentContentTypeEnumCHARTALERT IncidentContentTypeEnum = "CHART_ALERT"
 	IncidentContentTypeEnumERRORISSUE IncidentContentTypeEnum = "ERROR_ISSUE"
 	IncidentContentTypeEnumHEARTBEAT  IncidentContentTypeEnum = "HEARTBEAT"
+	IncidentContentTypeEnumMANUAL     IncidentContentTypeEnum = "MANUAL"
 	IncidentContentTypeEnumMONITOR    IncidentContentTypeEnum = "MONITOR"
 	IncidentContentTypeEnumSITEALERT  IncidentContentTypeEnum = "SITE_ALERT"
 )
@@ -317,6 +318,8 @@ func (e IncidentContentTypeEnum) Valid() bool {
 	case IncidentContentTypeEnumERRORISSUE:
 		return true
 	case IncidentContentTypeEnumHEARTBEAT:
+		return true
+	case IncidentContentTypeEnumMANUAL:
 		return true
 	case IncidentContentTypeEnumMONITOR:
 		return true
@@ -1560,6 +1563,36 @@ type HeartbeatUpdateSchema struct {
 // IncidentContentTypeEnum defines model for IncidentContentTypeEnum.
 type IncidentContentTypeEnum string
 
+// IncidentCreateSchema defines model for IncidentCreateSchema.
+type IncidentCreateSchema struct {
+	// Cause Root cause or description of the incident
+	Cause string `json:"cause"`
+
+	// HeartbeatId Optional associated heartbeat ID
+	HeartbeatId *openapi_types.UUID `json:"heartbeat_id,omitempty"`
+
+	// Meta Arbitrary custom metadata dictionary
+	Meta *map[string]interface{} `json:"meta,omitempty"`
+
+	// MonitorId Optional associated monitor ID
+	MonitorId *openapi_types.UUID `json:"monitor_id,omitempty"`
+
+	// Name Incident title or summary
+	Name string `json:"name"`
+
+	// SendAlert Whether to dispatch alert notifications to project integrations
+	SendAlert *bool `json:"send_alert,omitempty"`
+
+	// Severity Optional severity indicator (e.g. critical, major, minor, warning)
+	Severity *string `json:"severity,omitempty"`
+
+	// SiteAlertId Optional associated site alert ID
+	SiteAlertId *openapi_types.UUID `json:"site_alert_id,omitempty"`
+
+	// StartedAt Start time (UTC). Defaults to current time if omitted.
+	StartedAt *time.Time `json:"started_at,omitempty"`
+}
+
 // IncidentDetailSchema defines model for IncidentDetailSchema.
 type IncidentDetailSchema struct {
 	AcknowledgedAt   *time.Time              `json:"acknowledged_at,omitempty"`
@@ -2372,10 +2405,12 @@ type SourceCreateSchema struct {
 
 // SourceListSchema defines model for SourceListSchema.
 type SourceListSchema struct {
+	CurrentEps             *float32            `json:"current_eps,omitempty"`
 	DefaultDashboardId     *openapi_types.UUID `json:"default_dashboard_id,omitempty"`
 	GroupId                *openapi_types.UUID `json:"group_id,omitempty"`
 	HasLogs                *bool               `json:"has_logs,omitempty"`
 	HasMetrics             *bool               `json:"has_metrics,omitempty"`
+	HealthStatus           *string             `json:"health_status,omitempty"`
 	Id                     openapi_types.UUID  `json:"id"`
 	LogsBytes24h           *int                `json:"logs_bytes_24h,omitempty"`
 	LogsBytesTotal         *int                `json:"logs_bytes_total,omitempty"`
@@ -2919,6 +2954,9 @@ type HeartbeatCreateJSONRequestBody = HeartbeatCreateSchema
 
 // HeartbeatUpdateJSONRequestBody defines body for HeartbeatUpdate for application/json ContentType.
 type HeartbeatUpdateJSONRequestBody = HeartbeatUpdateSchema
+
+// IncidentCreateJSONRequestBody defines body for IncidentCreate for application/json ContentType.
+type IncidentCreateJSONRequestBody = IncidentCreateSchema
 
 // IntegrationCreateJSONRequestBody defines body for IntegrationCreate for application/json ContentType.
 type IntegrationCreateJSONRequestBody = IntegrationCreateSchema
@@ -4240,6 +4278,20 @@ type ClientInterface interface {
 	//
 	// Corresponds with GET /v1/incidents (the `IncidentList` operationId).
 	IncidentList(ctx context.Context, params *IncidentListParams, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// IncidentCreateWithBody CreateIncident
+	//
+	// Takes any type of body and a specified content type.
+	//
+	// Corresponds with POST /v1/incidents (the `IncidentCreate` operationId).
+	IncidentCreateWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// IncidentCreate CreateIncident
+	//
+	// Takes a body of the `application/json` content type.
+	//
+	// Corresponds with POST /v1/incidents (the `IncidentCreate` operationId).
+	IncidentCreate(ctx context.Context, body IncidentCreateJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
 
 	// IncidentGet Detail
 	//
@@ -5750,6 +5802,40 @@ func (c *Client) HeartbeatUnpause(ctx context.Context, heartbeatSlug string, req
 // Corresponds with GET /v1/incidents (the `IncidentList` operationId).
 func (c *Client) IncidentList(ctx context.Context, params *IncidentListParams, reqEditors ...RequestEditorFn) (*http.Response, error) {
 	req, err := NewIncidentListRequest(c.Server, params)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// IncidentCreateWithBody CreateIncident
+//
+// Takes any type of body and a specified content type.
+//
+// Corresponds with POST /v1/incidents (the `IncidentCreate` operationId).
+func (c *Client) IncidentCreateWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewIncidentCreateRequestWithBody(c.Server, contentType, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// IncidentCreate CreateIncident
+//
+// Takes a body of the `application/json` content type.
+//
+// Corresponds with POST /v1/incidents (the `IncidentCreate` operationId).
+func (c *Client) IncidentCreate(ctx context.Context, body IncidentCreateJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewIncidentCreateRequest(c.Server, body)
 	if err != nil {
 		return nil, err
 	}
@@ -9373,6 +9459,46 @@ func NewIncidentListRequest(server string, params *IncidentListParams) (*http.Re
 	if err != nil {
 		return nil, err
 	}
+
+	return req, nil
+}
+
+// NewIncidentCreateRequest calls the generic IncidentCreate builder with application/json body
+func NewIncidentCreateRequest(server string, body IncidentCreateJSONRequestBody) (*http.Request, error) {
+	var bodyReader io.Reader
+	buf, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	bodyReader = bytes.NewReader(buf)
+	return NewIncidentCreateRequestWithBody(server, "application/json", bodyReader)
+}
+
+// NewIncidentCreateRequestWithBody constructs an http.Request for the IncidentCreate method, with any body, and a specified content type
+func NewIncidentCreateRequestWithBody(server string, contentType string, body io.Reader) (*http.Request, error) {
+	var err error
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/v1/incidents")
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodPost, queryURL.String(), body)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Add("Content-Type", contentType)
 
 	return req, nil
 }
@@ -13107,6 +13233,20 @@ type ClientWithResponsesInterface interface {
 	// Corresponds with GET /v1/incidents (the `IncidentList` operationId).
 	IncidentListWithResponse(ctx context.Context, params *IncidentListParams, reqEditors ...RequestEditorFn) (*IncidentListResponse, error)
 
+	// IncidentCreateWithBodyWithResponse CreateIncident
+	//
+	// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with POST /v1/incidents (the `IncidentCreate` operationId).
+	IncidentCreateWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*IncidentCreateResponse, error)
+
+	// IncidentCreateWithResponse CreateIncident
+	//
+	// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with POST /v1/incidents (the `IncidentCreate` operationId).
+	IncidentCreateWithResponse(ctx context.Context, body IncidentCreateJSONRequestBody, reqEditors ...RequestEditorFn) (*IncidentCreateResponse, error)
+
 	// IncidentGetWithResponse Detail
 	//
 	// Returns a wrapper object for the known response body format(s).
@@ -16783,6 +16923,82 @@ func (r IncidentListResponse) StatusCode() int {
 
 // ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
 func (r IncidentListResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type IncidentCreateResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON201 the response for an HTTP 201 `application/json` response
+	JSON201 *IncidentDetailSchema
+	// JSON400 the response for an HTTP 400 `application/json` response
+	JSON400 *Error
+	// JSON401 the response for an HTTP 401 `application/json` response
+	JSON401 *Error
+	// JSON403 the response for an HTTP 403 `application/json` response
+	JSON403 *Error
+	// JSON404 the response for an HTTP 404 `application/json` response
+	JSON404 *Error
+	// JSON422 the response for an HTTP 422 `application/json` response
+	JSON422 *Error
+}
+
+// GetJSON201 returns the response for an HTTP 201 `application/json` response
+func (r IncidentCreateResponse) GetJSON201() *IncidentDetailSchema {
+	return r.JSON201
+}
+
+// GetJSON400 returns the response for an HTTP 400 `application/json` response
+func (r IncidentCreateResponse) GetJSON400() *Error {
+	return r.JSON400
+}
+
+// GetJSON401 returns the response for an HTTP 401 `application/json` response
+func (r IncidentCreateResponse) GetJSON401() *Error {
+	return r.JSON401
+}
+
+// GetJSON403 returns the response for an HTTP 403 `application/json` response
+func (r IncidentCreateResponse) GetJSON403() *Error {
+	return r.JSON403
+}
+
+// GetJSON404 returns the response for an HTTP 404 `application/json` response
+func (r IncidentCreateResponse) GetJSON404() *Error {
+	return r.JSON404
+}
+
+// GetJSON422 returns the response for an HTTP 422 `application/json` response
+func (r IncidentCreateResponse) GetJSON422() *Error {
+	return r.JSON422
+}
+
+// GetBody returns the raw response body bytes
+func (r IncidentCreateResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r IncidentCreateResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r IncidentCreateResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r IncidentCreateResponse) ContentType() string {
 	if r.HTTPResponse != nil {
 		return r.HTTPResponse.Header.Get("Content-Type")
 	}
@@ -23276,6 +23492,32 @@ func (c *ClientWithResponses) IncidentListWithResponse(ctx context.Context, para
 	return ParseIncidentListResponse(rsp)
 }
 
+// IncidentCreateWithBodyWithResponse CreateIncident
+//
+// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with POST /v1/incidents (the `IncidentCreate` operationId).
+func (c *ClientWithResponses) IncidentCreateWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*IncidentCreateResponse, error) {
+	rsp, err := c.IncidentCreateWithBody(ctx, contentType, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseIncidentCreateResponse(rsp)
+}
+
+// IncidentCreateWithResponse CreateIncident
+//
+// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with POST /v1/incidents (the `IncidentCreate` operationId).
+func (c *ClientWithResponses) IncidentCreateWithResponse(ctx context.Context, body IncidentCreateJSONRequestBody, reqEditors ...RequestEditorFn) (*IncidentCreateResponse, error) {
+	rsp, err := c.IncidentCreate(ctx, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseIncidentCreateResponse(rsp)
+}
+
 // IncidentGetWithResponse Detail
 //
 // Returns a wrapper object for the known response body format(s).
@@ -26943,6 +27185,67 @@ func ParseIncidentListResponse(rsp *http.Response) (*IncidentListResponse, error
 			return nil, err
 		}
 		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 400:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON400 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON401 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON403 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 404:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON404 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 422:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON422 = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseIncidentCreateResponse parses an HTTP response from a IncidentCreateWithResponse call
+func ParseIncidentCreateResponse(rsp *http.Response) (*IncidentCreateResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &IncidentCreateResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 201:
+		var dest IncidentDetailSchema
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON201 = &dest
 
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 400:
 		var dest Error
